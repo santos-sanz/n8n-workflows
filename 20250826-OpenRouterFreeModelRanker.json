@@ -1,0 +1,722 @@
+{
+  "name": "0) Free Model Ranker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 23
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -32,
+        -144
+      ],
+      "id": "404e3935-eebd-4c83-8317-27fcd2ebd4e8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/models",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        -48
+      ],
+      "id": "a21ae493-6758-4564-a0c7-65311681e835",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input: { data: [...] } desde el nodo HTTP Request (GET https://openrouter.ai/api/v1/models)\nconst data = ($input.first()?.json?.data) ?? [];\n\n// free = id termina en :free o precios 0\nconst isZero = v => v === 0 || v === \"0\" || v === \"0.0\" || v === \"0.0000000\";\nconst isFree = (m) => {\n  const idFree = typeof m.id === 'string' && m.id.endsWith(':free');\n  const p = m.pricing || {};\n  const prompt = (p.prompt ?? '').toString();\n  const completion = (p.completion ?? '').toString();\n  const priceFree = isZero(prompt) && isZero(completion);\n  return idFree || priceFree;\n};\n\n// formato legible (Europa/Madrid). La API suele dar segundos; si vienen ms, lo detectamos.\nfunction humanDate(ts) {\n  if (ts == null) return null;\n  let n = Number(ts);\n  if (!Number.isFinite(n)) return null;\n  if (n < 1e12) n *= 1000; // segundos -> ms\n  const d = new Date(n);\n  if (isNaN(d.getTime())) return null;\n  return new Intl.DateTimeFormat('es-ES', {\n    timeZone: 'Europe/Madrid',\n    year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit'\n  }).format(d);\n}\n\n// 1) Limpia: solo modelos con id de tipo string (descarta id nulo/no-string)\n// 2) Filtra: solo \"free\" por id o por precios a 0\n// 3) Mapea: añade created/human\nconst out = (Array.isArray(data) ? data : [])\n  .filter(m => m && typeof m.id === 'string')\n  .filter(isFree)\n  .map(m => {\n    const created_unix = m.created ?? null;\n    const created = humanDate(created_unix);\n    return { json: { ...m, created, created_unix } };\n  });\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -48
+      ],
+      "id": "87c486c8-5ec2-4f5c-99e7-55c79fdd2eeb",
+      "name": "CleanJSON"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "openrouter_models_free",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "model_id",
+              "condition": "ilike",
+              "keyValue": "**"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        208
+      ],
+      "id": "a9b434ed-6ce3-4bae-aadf-bdf0639943f9",
+      "name": "Delete All Content",
+      "alwaysOutputData": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "TTzdfFx0carpDgZZ",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "openrouter_models_free",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "model_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.model }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "work",
+              "fieldValue": "={{ $json.work }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2784,
+        -768
+      ],
+      "id": "43fd7784-1754-4cd6-a69e-156c258553e7",
+      "name": "Insert new content",
+      "credentials": {
+        "supabaseApi": {
+          "id": "TTzdfFx0carpDgZZ",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "v_openrouter_models_free",
+        "limit": 2
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -240
+      ],
+      "id": "0e81e038-73ae-42b0-96fb-3c091fc6dd1a",
+      "name": "Check Best Models",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "TTzdfFx0carpDgZZ",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "useDataOfInput": 2
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1088,
+        -144
+      ],
+      "id": "1648a1e2-ecc3-417a-aae0-322983f5c669",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2160,
+        -304
+      ],
+      "id": "54570be1-69d5-4aae-a183-6e7e3ee8f912",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "model": "={{ $json.id }}",
+        "options": {
+          "responseFormat": "text"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        -256
+      ],
+      "id": "b98fa6f4-82fd-4b8c-9c18-08cc472f0827",
+      "name": "Model Test",
+      "credentials": {
+        "openRouterApi": {
+          "id": "SHrTawaKNQcUyP6D",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"model\": \"{{ $('CleanJSON').item.json.id }}\",\n  \"work\": true\n}\n ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2784,
+        -400
+      ],
+      "id": "8b3d999b-f073-4aee-8876-fe656520cd35",
+      "name": "Work"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"model\": \"{{ $('CleanJSON').item.json.id }}\",\n  \"work\": false\n}\n ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2784,
+        -208
+      ],
+      "id": "5d53592a-2e2f-4060-9dd7-da01dcff4d54",
+      "name": "Doesn't work"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1eefea76-26e0-41a3-8221-281226607ba6",
+              "leftValue": "={{ $items(\"CleanJSON\").length }}",
+              "rightValue": 20,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        864,
+        -48
+      ],
+      "id": "ecc5cc35-afd0-4549-86c7-f94acb546365",
+      "name": "Check >20 models"
+    },
+    {
+      "parameters": {
+        "model": "={{ $('Check Best Models').all()[0]?.json?.model_id ?? $('CleanJSON').all()[0]?.json?.id }}",
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        336
+      ],
+      "id": "f6a7e85c-7529-487b-857a-d23c62baa459",
+      "name": "Main Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "SHrTawaKNQcUyP6D",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "={{ $('Check Best Models').all()[1]?.json?.model_id ?? $('CleanJSON').all()[1]?.json?.id }}",
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        336
+      ],
+      "id": "32986d06-60d7-4dd3-ae09-bf05123f88f4",
+      "name": "Fallback Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "SHrTawaKNQcUyP6D",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "id",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -48
+      ],
+      "id": "b457ba5f-a2ec-45fd-98b7-09e86a3dd7cb",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Soporta dos casos:\n// 1) Un solo item con { json: { data: [...] } }  (HTTP Request)\n// 2) N items, uno por modelo (tu caso actual: 55 items)\n\nconst inItems = $input.all();\n\n// utilidades\nconst isZero = v => v === 0 || v === \"0\" || v === \"0.0\" || v === \"0.0000000\";\nconst isFree = (m) => {\n  const idFree = typeof m.id === 'string' && m.id.endsWith(':free');\n  const p = m.pricing || {};\n  const prompt = (p.prompt ?? '').toString();\n  const completion = (p.completion ?? '').toString();\n  const priceFree = isZero(prompt) && isZero(completion);\n  return idFree || priceFree;\n};\n\nfunction humanDate(ts) {\n  if (ts == null) return null;\n  let n = Number(ts);\n  if (!Number.isFinite(n)) return null;\n  if (n < 1e12) n *= 1000; // segundos -> ms\n  const d = new Date(n);\n  if (isNaN(d.getTime())) return null;\n  return new Intl.DateTimeFormat('es-ES', {\n    timeZone: 'Europe/Madrid',\n    year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit'\n  }).format(d);\n}\n\nconst toNum = (x) => {\n  const n = Number(x);\n  return Number.isFinite(n) ? n : null;\n};\nconst toTextOrNull = (x) => (typeof x === 'string' && x.length ? x : null);\n\n// Detecta modo entrada\nconst singleWithArray = inItems.length === 1 && Array.isArray(inItems[0]?.json?.data);\n\n// Cuando llegan N items (55), mantenemos 1→1 y NO re-filtramos por \"free\" (ya viene filtrado aguas arriba).\n// Cuando llega un único item con data[], sí aplicamos el filtro \"free\".\nlet models;\nlet applyFreeFilter;\n\nif (singleWithArray) {\n  models = inItems[0].json.data;\n  applyFreeFilter = true;\n} else {\n  models = inItems.map(it => it.json);\n  applyFreeFilter = false;\n}\n\n// Limpieza de ids y filtro opcional de \"free\"\nlet list = models.filter(m => m && typeof m.id === 'string' && m.id.trim() !== '');\nif (applyFreeFilter) {\n  list = list.filter(isFree);\n}\n\n// Salida uniforme para Supabase (mismas claves en todas las filas)\nconst out = list.map((m, i) => {\n  const row = {\n    model_id: m.id,\n    name: toTextOrNull(m.name) ?? m.id,\n    description: toTextOrNull(m.description),\n    created: humanDate(m.created ?? null),\n    created_unix: toNum(m.created),\n    intelligence_score: toNum(m.intelligence_score),\n    data: m,         // jsonb\n    work: false\n    // no mandes created_at/updated_at si tu tabla los pone por defecto\n  };\n\n  // conserva el pairing cuando entran N items (útil para depurar)\n  const pairedItem = singleWithArray ? undefined : { item: i };\n  return { json: row, pairedItem };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        16
+      ],
+      "id": "d6856cab-aa0a-4545-b09c-d106a9745691",
+      "name": "Code",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "tableId": "openrouter_models_free",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "model_id",
+              "fieldValue": "={{ $json.model_id }}"
+            },
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $json.name }}"
+            },
+            {
+              "fieldId": "description",
+              "fieldValue": "={{ $json.description }}"
+            },
+            {
+              "fieldId": "created",
+              "fieldValue": "={{ $json.created }}"
+            },
+            {
+              "fieldId": "created_unix",
+              "fieldValue": "={{ $json.created_unix }}"
+            },
+            {
+              "fieldId": "data",
+              "fieldValue": "={{ $json.data.supported_parameters }}"
+            },
+            {
+              "fieldId": "intelligence_score",
+              "fieldValue": "={{ $json.intelligence_score }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        112
+      ],
+      "id": "8c06fd70-78e3-4251-bce3-93350de3406a",
+      "name": "Insert Rows",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "TTzdfFx0carpDgZZ",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1936,
+        112
+      ],
+      "id": "d6dcb973-e162-48c2-9fc7-72ff6ef9028c",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2480,
+        -768
+      ],
+      "id": "a121a1aa-302b-419a-b724-012cdbca17ce",
+      "name": "Wait for both to finish"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Hi",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        2384,
+        -480
+      ],
+      "id": "7d238983-6f1f-4844-976e-56dd6fffd50e",
+      "name": "Checking if the model returns an answer",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=SYSTEM TASK (strict):\nYou will receive one JSON object with metadata for a model from the OpenRouter API. Compute an intelligence score (0–100) using the rubric below, then return the original JSON with one extra top-level field \"intelligence_score\" as an integer.\n- Do not add other fields.\n- Do not reorder or remove fields.\n- Output raw JSON only (no markdown, no prose).\n\nINPUT JSON:\n{{ JSON.stringify($json) }}\n\nSCORING RUBRIC (100 points total):\n\nGENERAL PARSING RULES (deterministic):\n- Treat field names case-insensitively. Search across: top-level, \"meta\", \"arch\"/\"architecture\", \"capabilities\", \"limits\", \"pricing\", \"default_parameters\", \"supported_parameters\", \"tags\", \"description\".\n- Strings you may inspect: id, name, provider, description, tags[]; join tags by space.\n- Numeric helpers:\n  - Context window: prefer numeric from any of: context_length, architecture.context_length, input_token_limit, max_input_tokens, \"limits.context\" etc. If characters are given, tokens ≈ chars/4 (integer).\n  - Parameters: parse from \"parameters\" or \"architecture.parameters\" (accept \"7B\", \"70b\", \"405B\", numbers). If MoE is stated (contains \"moe\", \"mixture-of-experts\"), treat as ≥70B unless an explicit larger value exists.\n  - Dates: use most recent valid date from: release_date, released, created, updated, updated_at, version_date. If only a year (e.g., \"2024\"), assume Jan 1 of that year. For quarters like \"Q2 2024\", use mid-quarter (May 15).\n- Boolean/feature detection is substring-based (lowercased):\n  - Reasoning-family flags if id/name/description/tags include any of: \"r1\", \"r1-distill\", \"o3\", \"o4\", \"thinking\", \"reasoning\", \"deepseek-r\", \"qwen-*-a?3b\" with \"thinking\", \"ds-r1\", \"mai-ds-r1\".\n  - Multimodal if includes any of: \"vision\", \"image\", \"audio\", \"multimodal\", \"vl\".\n  - Tools if includes: \"tools\", \"tool use\", \"function calling\", \"tool_call\", \"function_call\", \"openai-tools\", \"parallel\".\n  - Structured output if includes: \"json mode\", \"response_format\", \"grammar\", \"regex\", \"json-schema\".\n  - Coding-specialist if includes: \"code\", \"coder\", \"coding\", \"programming\".\n  - Math/reasoning hints if includes: \"chain-of-thought\", \"reasoning tokens\", \"verifier\", \"solver\", \"scratchpad\", \"budget\".\n  - RAG/web if includes: \"retrieval\", \"RAG\", \"search\", \"web\".\n  - Safety/controls if includes: \"safety\", \"system prompt\", \"instruction following\", \"guardrails\".\n  - Decoding controls if parameters or docs mention: temperature, top_p, top_k, min_p, presence_penalty, frequency_penalty, repetition_penalty, stop, seed, max_tokens; advanced: response_format/json_mode, grammar/regex/schema, tool_choice/parallel, function schemas; observability: logprobs, logit_bias, beam/contrastive/mirostat, reasoning tokens/budget.\n- Free detection: price is 0 in pricing/usage OR model id ends with \":free\".\n\nSCORING:\n\n1) Provider & Model Family Reputation (0–18)\n   Use provider/id/name/tags/description.\n   - Frontier labs (OpenAI, Anthropic, Google/DeepMind): 15–18\n   - Strong open/commercial (Meta/Meta-Llama, Mistral, Cohere, xAI, Qwen/Alibaba, DeepSeek, NVIDIA, Microsoft/PHI): 13–16\n   - Mid-tier/unclear: 9–12\n   - Small/new/unknown: 5–8\n   + Reasoning-family bonus within cap: +0–2 if reasoning-family flag is set.\n   If unknown provider: 10.\n\n2) Capabilities & Description Quality (0–22)\n   Start at 8 if very vague; 12 if generic/unknown.\n   Add (clamp to 22):\n   - Multimodal I/O (vision/audio): +0–4\n   - Tool/function calling: +0–4\n   - Structured outputs (JSON/grammar/schema): +0–3\n   - Coding-specialist focus: +0–3\n   - Math/reasoning features (reasoning tokens/solver/budget): +0–5\n   - Retrieval/Web/RAG hints: +0–2\n   - Safety/controls/system-prompt features: +0–2\n   - Fine decoding controls mentioned: +0–2\n\n3) Context Window (0–18)\n   Use largest credible context token value.\n   - ≤8k: 2\n   - ~16k: 6\n   - ~32k: 9\n   - ~64k: 12\n   - ~100k: 14\n   - ~128k: 16\n   - ~200k: 18\n   - ≥1M: 18\n   Unknown: 8\n\n4) Parameters, Scale & Control Surface (0–22)\n   A) Scale (0–10):\n      - <8B: 2\n      - 8–14B: 5\n      - 15–34B: 7\n      - 35–69B: 9\n      - ≥70B or MoE: 10\n      Unknown: 5\n   B) Controls (0–12):\n      - Core sampling knobs present (temperature, top_p, top_k, min_p, presence_penalty, frequency_penalty, repetition_penalty, stop, seed, max_tokens): +0–8 total (count distinct).\n      - Advanced/structure (json/grammar/schema, tool_choice/parallel, function schemas): +0–3\n      - Observability/decoding (logprobs, logit_bias, beam/contrastive/mirostat, reasoning budget/tokens): +0–1\n      Unknown controls: 5 total for B.\n\n5) Release Date Recency (0–15)\n   Based on most recent valid date.\n   Age at evaluation time (Current datetime: {{ $now }}):\n   - ≤2 months: 15\n   - >2–4 months: 13\n   - >4–8 months: 11\n   - >8–12 months: 9\n   - >12–24 months: 7\n   - >24 months: 5\n   Unknown: 7\n\nAdditive bonuses (apply once, then clamp final score to [0,100]):\n- Benchmarks: if description/meta contains numeric scores for common evals (e.g., MMLU, GSM8K, HumanEval, MT-Bench, Arena) then:\n  Strong (MMLU ≥80 OR GSM8K ≥70 OR HumanEval ≥80): +6\n  Moderate (≥60 on any): +3\n  Else: +0\n- Free availability: if detected as free (see rule above): +2\n\nALGORITHM (deterministic):\n1. Parse the JSON per the rules.\n2. Compute the five subscores.\n3. Add bonuses.\n4. Sum, round to nearest integer, clamp to [0, 100].\n5. Return the original JSON plus \"intelligence_score\": <int> at the top level.\n6. Output raw JSON only.\n\nFAIL-SAFES:\n- If a field is missing, do not guess—use the specified “Unknown” defaults.\n- If multiple candidate dates exist, pick the most recent valid one.\n- If \"intelligence_score\" already exists, recompute and overwrite.\n",
+        "needsFallback": true,
+        "batching": {
+          "batchSize": 5,
+          "delayBetweenBatches": 100000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1312,
+        112
+      ],
+      "id": "612d8905-d87a-4267-b505-2eda519ab9e0",
+      "name": "Evaluating Model Intelligence",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Best Models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "CleanJSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CleanJSON": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert new content": {
+      "main": [
+        []
+      ]
+    },
+    "Delete All Content": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Check Best Models": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Evaluating Model Intelligence",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Wait for both to finish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Checking if the model returns an answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Test": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Checking if the model returns an answer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Doesn't work": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check >20 models": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Main Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Evaluating Model Intelligence",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Evaluating Model Intelligence",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Check >20 models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Rows": {
+      "main": [
+        [
+          {
+            "node": "Wait for both to finish",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Insert Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for both to finish": {
+      "main": [
+        [
+          {
+            "node": "Insert new content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checking if the model returns an answer": {
+      "main": [
+        [
+          {
+            "node": "Work",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Doesn't work",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluating Model Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Delete All Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a7604cda-2294-462d-9f1d-118e06f8631e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2d085275b1e887a405230675e8a8a11b3fd0553990ef1bbc722212b2b1f3c872"
+  },
+  "id": "7gudWIS3CpaVD73e",
+  "tags": [
+    {
+      "createdAt": "2025-08-16T16:26:01.271Z",
+      "updatedAt": "2025-08-16T16:26:01.271Z",
+      "id": "kbtQp2pCnJtjoIi8",
+      "name": "LLM_platform"
+    }
+  ]
+}
