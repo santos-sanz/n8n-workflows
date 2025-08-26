@@ -1,10 +1,10 @@
 # n8n Workflows Collection
 
-A curated collection of shared automation workflows for the n8n workflow automation platform.
+A curated collection of shared automation workflows for the n8n workflow automation platform made by me,
 
 ## Overview
 
-This repository contains a growing collection of n8n workflows designed to automate various tasks and processes. Each workflow has been carefully crafted and tested to help you streamline your operations, integrate different services, and build powerful automation solutions.
+This repository contains a  collection of n8n workflows designed to automate various tasks and processes. 
 
 n8n is a powerful, open-source workflow automation tool that allows you to connect anything to everything. Whether you're looking to automate data processing, integrate APIs, manage notifications, or create complex business logic, these workflows provide ready-to-use solutions and inspiration for your own automation projects.
 
@@ -68,8 +68,3 @@ Have questions about a workflow or need help with implementation?
 - Check existing issues before creating new ones
 - Be descriptive in your issue titles and descriptions
 
----
-
-**Happy automating!** 🚀
-
-Made with ❤️ for the n8n community
